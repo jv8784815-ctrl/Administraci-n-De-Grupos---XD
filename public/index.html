@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrikiBot - Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0f0f0f; color: #fff; padding: 20px; }
+        h1 { text-align: center; margin-bottom: 20px; font-size: 22px; }
+        
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab { flex: 1; padding: 10px; background: #1a1a1a; border: none; color: #fff; border-radius: 8px; cursor: pointer; }
+        .tab.active { background: #667eea; }
+
+        .card { background: #1a1a1a; border-radius: 12px; padding: 15px; margin-bottom: 12px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-title { font-weight: bold; font-size: 16px; }
+        .card-badge { font-size: 12px; padding: 4px 8px; border-radius: 12px; }
+        .badge-pendiente { background: #ffa502; color: #000; }
+        .badge-aceptada { background: #2ed573; color: #000; }
+        .badge-rechazada { background: #ff4757; color: #fff; }
+
+        .card-info { font-size: 13px; color: #aaa; margin-bottom: 4px; }
+        .card-buttons { display: flex; gap: 10px; margin-top: 12px; }
+        .btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: bold; }
+        .btn-accept { background: #2ed573; color: #000; }
+        .btn-reject { background: #ff4757; color: #fff; }
+
+        .stats { display: flex; gap: 10px; margin-bottom: 20px; }
+        .stat { flex: 1; background: #1a1a1a; padding: 12px; border-radius: 8px; text-align: center; }
+        .stat-num { font-size: 24px; font-weight: bold; }
+        .stat-label { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+        .loading { text-align: center; padding: 40px; color: #aaa; }
+        .empty { text-align: center; padding: 40px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>🤖 FrikiBot Panel</h1>
+
+    <div class="stats">
+        <div class="stat"><div class="stat-num" id="statPendientes">0</div><div class="stat-label">Pendientes</div></div>
+        <div class="stat"><div class="stat-num" id="statAceptadas">0</div><div class="stat-label">Aceptadas</div></div>
+        <div class="stat"><div class="stat-num" id="statRechazadas">0</div><div class="stat-label">Rechazadas</div></div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="cargarSolicitudes('pendientes')">⏳ Pendientes</button>
+        <button class="tab" onclick="cargarSolicitudes('aceptada')">✅ Aceptadas</button>
+        <button class="tab" onclick="cargarSolicitudes('rechazada')">❌ Rechazadas</button>
+    </div>
+
+    <div id="content"><div class="loading">Cargando...</div></div>
+
+    <script>
+        const API = '/api/solicitudes';
+
+        async function cargarStats() {
+            const res = await fetch(API);
+            const data = await res.json();
+            document.getElementById('statPendientes').textContent = data.pendientes || 0;
+            document.getElementById('statAceptadas').textContent = data.aceptadas || 0;
+            document.getElementById('statRechazadas').textContent = data.rechazadas || 0;
+        }
+
+        async function cargarSolicitudes(estado) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const res = await fetch(`${API}?estado=${estado}`);
+            const data = await res.json();
+            const solicitudes = data.solicitudes || [];
+
+            const content = document.getElementById('content');
+
+            if (solicitudes.length === 0) {
+                content.innerHTML = '<div class="empty">No hay solicitudes</div>';
+                return;
+            }
+
+            content.innerHTML = solicitudes.map(s => `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">${s.grupo.nombre || 'Sin nombre'}</div>
+                        <div class="card-badge badge-${s.estado}">${s.estado}</div>
+                    </div>
+                    <div class="card-info">👥 ${s.grupo.miembros || 0} miembros</div>
+                    <div class="card-info">👤 Solicitante: ${s.solicitante.nombre || 'Usuario'}</div>
+                    <div class="card-info">📅 ${new Date(s.fecha).toLocaleString()}</div>
+                    <div class="card-info">🔗 <a href="${s.grupo.link}" target="_blank" style="color:#667eea">Link del grupo</a></div>
+                    ${s.estado === 'pendiente' ? `
+                    <div class="card-buttons">
+                        <button class="btn btn-accept" onclick="actualizar('${s.id}', 'aceptada')">✅ Aceptar</button>
+                        <button class="btn btn-reject" onclick="actualizar('${s.id}', 'rechazada')">❌ Rechazar</button>
+                    </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function actualizar(id, estado) {
+            const res = await fetch(`${API}/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ estado })
+            });
+            
+            if (res.ok) {
+                cargarStats();
+                cargarSolicitudes('pendientes');
+            }
+        }
+
+        cargarStats();
+        cargarSolicitudes('pendientes');
+    </script>
+</body>
+</html>
