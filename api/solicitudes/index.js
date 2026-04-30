@@ -56,13 +56,41 @@ export default async function handler(req, res) {
       const estado = url.searchParams.get('estado');
       const id = url.pathname.split('/').pop();
 
+      // GET por ID
       if (id && id !== 'solicitudes') {
         const raw = await redis('GET', `sol:${id}`);
         if (!raw) return res.status(404).json({ error: 'No encontrada' });
         return res.status(200).json({ solicitud: JSON.parse(raw) });
       }
 
-      const clave = estado || 'pendientes';
+      // GET todas - buscar en TODAS las listas
+      if (!estado) {
+        const todasIds = [];
+        const pendientesIds = await redis('SMEMBERS', 'pendientes') || [];
+        const aceptadasIds = await redis('SMEMBERS', 'aceptadas') || [];
+        const rechazadasIds = await redis('SMEMBERS', 'rechazadas') || [];
+        
+        todasIds.push(...pendientesIds, ...aceptadasIds, ...rechazadasIds);
+        
+        const solicitudes = [];
+        for (const id of [...new Set(todasIds)].slice(-50)) {
+          const raw = await redis('GET', `sol:${id}`);
+          if (raw) solicitudes.push(JSON.parse(raw));
+        }
+
+        return res.status(200).json({
+          solicitudes,
+          total: solicitudes.length,
+          pendientes: pendientesIds.length,
+          aceptadas: aceptadasIds.length,
+          rechazadas: rechazadasIds.length
+        });
+      }
+
+      // GET por estado específico
+      const clave = estado === 'aceptada' ? 'aceptadas' :
+                    estado === 'rechazada' ? 'rechazadas' : 'pendientes';
+
       const ids = await redis('SMEMBERS', clave) || [];
       const solicitudes = [];
 
@@ -71,16 +99,9 @@ export default async function handler(req, res) {
         if (raw) solicitudes.push(JSON.parse(raw));
       }
 
-      const pendientes = await redis('SCARD', 'pendientes') || 0;
-      const aceptadas = await redis('SCARD', 'aceptadas') || 0;
-      const rechazadas = await redis('SCARD', 'rechazadas') || 0;
-
       return res.status(200).json({
         solicitudes,
-        total: solicitudes.length,
-        pendientes,
-        aceptadas,
-        rechazadas
+        total: solicitudes.length
       });
     }
 
@@ -98,13 +119,26 @@ export default async function handler(req, res) {
       const solicitud = JSON.parse(raw);
       const estadoAnterior = solicitud.estado;
 
-      await redis('SREM', estadoAnterior === 'pendiente' ? 'pendientes' : estadoAnterior, id);
+      // Remover de lista anterior
+      const listaAnterior = estadoAnterior === 'pendiente' ? 'pendientes' :
+                            estadoAnterior === 'aceptada' ? 'aceptadas' :
+                            estadoAnterior === 'rechazada' ? 'rechazadas' : 'pendientes';
       
+      await redis('SREM', listaAnterior, id);
+
+      // Actualizar
       solicitud.estado = estado;
       solicitud.fechaActualizacion = new Date().toISOString();
-      
       await redis('SET', `sol:${id}`, JSON.stringify(solicitud));
-      await redis('SADD', estado === 'pendiente' ? 'pendientes' : estado, id);
+
+      // Agregar a nueva lista
+      const listaNueva = estado === 'pendiente' ? 'pendientes' :
+                         estado === 'aceptada' ? 'aceptadas' :
+                         estado === 'rechazada' ? 'rechazadas' : 'pendientes';
+      
+      await redis('SADD', listaNueva, id);
+
+      // Guardar en historial
       await redis('LPUSH', 'historial', JSON.stringify(solicitud));
 
       return res.status(200).json({ mensaje: `Solicitud ${estado}`, solicitud });
