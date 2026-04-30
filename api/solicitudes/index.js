@@ -64,44 +64,45 @@ export default async function handler(req, res) {
       }
 
       // GET todas - buscar en TODAS las listas
-      if (!estado) {
-        const todasIds = [];
-        const pendientesIds = await redis('SMEMBERS', 'pendientes') || [];
-        const aceptadasIds = await redis('SMEMBERS', 'aceptadas') || [];
-        const rechazadasIds = await redis('SMEMBERS', 'rechazadas') || [];
-        
-        todasIds.push(...pendientesIds, ...aceptadasIds, ...rechazadasIds);
-        
-        const solicitudes = [];
-        for (const id of [...new Set(todasIds)].slice(-50)) {
-          const raw = await redis('GET', `sol:${id}`);
-          if (raw) solicitudes.push(JSON.parse(raw));
-        }
+      const pendientesIds = await redis('SMEMBERS', 'pendientes') || [];
+      const aceptadasIds = await redis('SMEMBERS', 'aceptadas') || [];
+      const rechazadasIds = await redis('SMEMBERS', 'rechazadas') || [];
 
-        return res.status(200).json({
-          solicitudes,
-          total: solicitudes.length,
-          pendientes: pendientesIds.length,
-          aceptadas: aceptadasIds.length,
-          rechazadas: rechazadasIds.length
-        });
+      console.log('Pendientes IDs:', pendientesIds);
+      console.log('Aceptadas IDs:', aceptadasIds);
+      console.log('Rechazadas IDs:', rechazadasIds);
+
+      let todasIds = [];
+      
+      if (!estado) {
+        todasIds = [...pendientesIds, ...aceptadasIds, ...rechazadasIds];
+      } else if (estado === 'pendiente') {
+        todasIds = pendientesIds;
+      } else if (estado === 'aceptada') {
+        todasIds = aceptadasIds;
+      } else if (estado === 'rechazada') {
+        todasIds = rechazadasIds;
       }
 
-      // GET por estado específico
-      const clave = estado === 'aceptada' ? 'aceptadas' :
-                    estado === 'rechazada' ? 'rechazadas' : 'pendientes';
-
-      const ids = await redis('SMEMBERS', clave) || [];
       const solicitudes = [];
-
-      for (const id of ids.slice(-50)) {
+      for (const id of todasIds.slice(-50)) {
         const raw = await redis('GET', `sol:${id}`);
-        if (raw) solicitudes.push(JSON.parse(raw));
+        if (raw) {
+          solicitudes.push(JSON.parse(raw));
+        } else {
+          // Si no existe, limpiar de la lista
+          await redis('SREM', 'pendientes', id);
+          await redis('SREM', 'aceptadas', id);
+          await redis('SREM', 'rechazadas', id);
+        }
       }
 
       return res.status(200).json({
         solicitudes,
-        total: solicitudes.length
+        total: solicitudes.length,
+        pendientes: pendientesIds.length,
+        aceptadas: aceptadasIds.length,
+        rechazadas: rechazadasIds.length
       });
     }
 
@@ -120,26 +121,18 @@ export default async function handler(req, res) {
       const estadoAnterior = solicitud.estado;
 
       // Remover de lista anterior
-      const listaAnterior = estadoAnterior === 'pendiente' ? 'pendientes' :
-                            estadoAnterior === 'aceptada' ? 'aceptadas' :
-                            estadoAnterior === 'rechazada' ? 'rechazadas' : 'pendientes';
-      
-      await redis('SREM', listaAnterior, id);
+      await redis('SREM', 'pendientes', id);
+      await redis('SREM', 'aceptadas', id);
+      await redis('SREM', 'rechazadas', id);
 
       // Actualizar
       solicitud.estado = estado;
-      solicitud.fechaActualizacion = new Date().toISOString();
       await redis('SET', `sol:${id}`, JSON.stringify(solicitud));
 
       // Agregar a nueva lista
-      const listaNueva = estado === 'pendiente' ? 'pendientes' :
-                         estado === 'aceptada' ? 'aceptadas' :
-                         estado === 'rechazada' ? 'rechazadas' : 'pendientes';
-      
-      await redis('SADD', listaNueva, id);
-
-      // Guardar en historial
-      await redis('LPUSH', 'historial', JSON.stringify(solicitud));
+      if (estado === 'pendiente') await redis('SADD', 'pendientes', id);
+      else if (estado === 'aceptada') await redis('SADD', 'aceptadas', id);
+      else if (estado === 'rechazada') await redis('SADD', 'rechazadas', id);
 
       return res.status(200).json({ mensaje: `Solicitud ${estado}`, solicitud });
     }
@@ -160,9 +153,7 @@ function parseBody(req) {
       try {
         const raw = Buffer.concat(chunks).toString();
         resolve(raw ? JSON.parse(raw) : {});
-      } catch {
-        reject(new Error('JSON inválido'));
-      }
+      } catch { reject(new Error('JSON inválido')); }
     });
     req.on('error', reject);
   });
