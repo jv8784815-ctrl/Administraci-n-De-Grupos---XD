@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         .btn-ok { background: #2ed573; color: #000; }
         .btn-no { background: #ff4757; color: #fff; }
         .empty { text-align: center; padding: 30px; color: #555; }
-        .refresh { position: fixed; bottom: 20px; right: 20px; background: #667eea; color: #fff; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 14px; }
+        .refresh { position: fixed; bottom: 20px; right: 20px; background: #667eea; color: #fff; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     <button class="refresh" onclick="cargar(tabActual)">🔄 Actualizar</button>
 
     <script>
-        const API = 'http://64.20.54.50:30279/api/solicitudes';
+        const API = 'http://64.20.54.50:30278/api/solicitudes';
         let tabActual = 'pendiente';
 
         async function cargar(estado) {
